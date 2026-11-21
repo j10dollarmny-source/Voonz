@@ -1,0 +1,61 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Voos</title>
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#666;--bd:#ddd;--ac:#0b5fff}
+@media(prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#999;--bd:#333;--ac:#3d7bff}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+main{max-width:960px;margin:0 auto;padding:16px}
+form,.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:12px}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:2px}
+input,select,button{font:inherit;padding:7px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg)}
+button{background:var(--ac);color:#fff;border:0;cursor:pointer}
+.card{border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:8px;display:grid;grid-template-columns:1fr auto;gap:8px}
+.sl{display:flex;gap:16px;flex-wrap:wrap}.mut{color:var(--mut);font-size:13px}.price{font-size:20px;font-weight:600;text-align:right}
+.air{display:flex;gap:10px;flex-wrap:wrap}.air label{flex-direction:row;align-items:center;color:var(--fg);font-size:14px}
+</style></head><body><main>
+<h1>Buscar voos</h1>
+<form id="f">
+<label>Origem (IATA)<input name="origin" maxlength="3" size="4" required placeholder="CNF"></label>
+<label>Destino (IATA)<input name="destination" maxlength="3" size="4" required placeholder="GRU"></label>
+<label>Ida<input type="date" name="depart" required></label>
+<label>Volta (opcional)<input type="date" name="ret"></label>
+<label>Adultos<input type="number" name="adults" value="1" min="1" max="9" style="width:64px"></label>
+<label>Classe<select name="cabin"><option value="economy">Econômica</option><option value="premium_economy">Premium</option><option value="business">Executiva</option><option value="first">Primeira</option></select></label>
+<button>Buscar</button></form>
+<div id="msg" class="mut"></div>
+<div class="filters" id="flt" hidden>
+<label>Ordenar<select id="sort"><option value="price">Menor preço</option><option value="duration">Menor duração</option><option value="best">Melhor custo-benefício</option><option value="dep">Saída mais cedo</option></select></label>
+<label>Escalas até<select id="stops"><option value="9">Qualquer</option><option value="0">Direto</option><option value="1">1</option><option value="2">2</option></select></label>
+<label>Preço máx.<input id="max" type="number" min="0" placeholder="sem limite"></label>
+<div class="air" id="air"></div></div>
+<div id="out"></div></main>
+<script>
+const $=s=>document.querySelector(s);let offers=[];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dur=m=>`${Math.floor(m/60)}h${String(m%60).padStart(2,"0")}`;
+const money=(v,c)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:c}).format(v);
+const stops=o=>Math.max(...o.slices.map(s=>s.stops));
+const mins=o=>o.slices.reduce((a,s)=>a+s.duration,0);
+// "best" é heurística: preço + 20/h de viagem + 50 por escala (na moeda da oferta). Ajuste à vontade.
+const score=o=>o.price+mins(o)/60*20+stops(o)*50;
+$("#f").onsubmit=async e=>{e.preventDefault();$("#msg").textContent="Buscando…";$("#out").innerHTML="";
+ const p=new URLSearchParams([...new FormData(e.target)].filter(([,v])=>v));
+ try{const r=await fetch("/api/search?"+p);const j=await r.json();if(!r.ok)throw new Error(j.error);
+  offers=j.offers;$("#msg").textContent=`${offers.length} ofertas · fonte: ${j.provider}${j.cached?" (cache)":""}`;
+  const a=new Map(offers.map(o=>[o.airline.code,o.airline.name]));
+  $("#air").innerHTML=[...a].map(([c,n])=>`<label><input type="checkbox" value="${esc(c)}" checked>${esc(n)}</label>`).join("");
+  $("#flt").hidden=false;render();
+ }catch(err){$("#msg").textContent="Erro: "+err.message}};
+$("#flt").oninput=render;
+function render(){
+ const on=new Set([...document.querySelectorAll("#air input:checked")].map(i=>i.value));
+ const ms=+$("#stops").value,mp=+$("#max").value||Infinity,s=$("#sort").value;
+ const key={price:o=>o.price,duration:mins,best:score,dep:o=>o.slices[0].departAt};
+ const list=offers.filter(o=>on.has(o.airline.code)&&stops(o)<=ms&&o.price<=mp)
+  .sort((a,b)=>key[s](a)>key[s](b)?1:-1).slice(0,50);
+ $("#out").innerHTML=list.map(o=>`<div class="card"><div>${o.slices.map((x,i)=>`<div class="sl"><b>${i?"Volta":"Ida"}</b>
+  <span>${x.departAt.slice(11,16)} ${esc(x.origin)} → ${x.arriveAt.slice(11,16)} ${esc(x.destination)}</span>
+  <span class="mut">${x.departAt.slice(8,10)}/${x.departAt.slice(5,7)} · ${dur(x.duration)} · ${x.stops?x.stops+" escala(s)":"direto"}</span></div>`).join("")}
+  <div class="mut">${esc(o.airline.name)}</div></div><div class="price">${money(o.price,o.currency)}</div></div>`).join("")||"<p class='mut'>Nada com esses filtros.</p>";
+}
+</script></body></html>
